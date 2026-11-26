@@ -1,0 +1,367 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  INSTRUCTOR
+  STUDENT
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LessonType {
+  TEXT
+  VIDEO
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  DROPPED
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  // Future extensions: ESSAY, TRUE_FALSE
+}
+
+enum NotificationType {
+  ENROLLMENT
+  ANNOUNCEMENT
+  COURSE_UPDATE
+  QUIZ_RESULT
+  SYSTEM
+}
+
+// ---------- Tenancy ----------
+model Organization {
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  users         User[]
+  courses       Course[]
+  categories    Category[]
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+}
+
+// ---------- Auth (Better Auth core tables + our fields) ----------
+model User {
+  id             String       @id
+  name           String
+  email          String       @unique
+  emailVerified  Boolean      @default(false)
+  image          String?
+  role           Role         @default(STUDENT)
+  isActive       Boolean      @default(true)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+  profile       Profile?
+  coursesTaught Course[]
+  enrollments   Enrollment[]
+  progress      LessonProgress[]
+  attempts      QuizAttempt[]
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+
+  @@index([organizationId, role])
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@index([identifier])
+}
+
+model Profile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio       String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- Catalog ----------
+model Category {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  slug           String
+  courses        Course[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, slug])
+}
+
+model Course {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  instructorId   String
+  instructor     User         @relation(fields: [instructorId], references: [id])
+  categoryId     String?
+  category       Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  title          String
+  slug           String
+  description    String?      @db.Text
+  thumbnailUrl   String?
+  level          CourseLevel  @default(BEGINNER)
+  status         CourseStatus @default(DRAFT)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  modules     Module[]
+  enrollments Enrollment[]
+  quizzes     Quiz[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@index([instructorId])
+  @@index([categoryId])
+}
+
+model Module {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title     String
+  position  Int
+  lessons   Lesson[]
+  quizzes   Quiz[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId, position])
+}
+
+model Lesson {
+  id        String             @id @default(cuid())
+  moduleId  String
+  module    Module             @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title     String
+  type      LessonType         @default(TEXT)
+  content   String?            @db.Text
+  videoUrl  String?
+  position  Int
+  materials LearningMaterial[]
+  progress  LessonProgress[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([moduleId, position])
+}
+
+model LearningMaterial {
+  id        String   @id @default(cuid())
+  lessonId  String
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileKey   String   // storage key, not a URL
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  @@index([lessonId])
+}
+
+// ---------- Enrollment & progress ----------
+model Enrollment {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  courseId     String
+  course       Course           @relation(fields: [courseId], references: [id])
+  status       EnrollmentStatus @default(ACTIVE)
+  enrolledAt   DateTime         @default(now())
+  completedAt  DateTime?
+  lastLessonId String?
+  progress     LessonProgress[]
+
+  @@unique([userId, courseId])
+  @@index([courseId, status])
+}
+
+model LessonProgress {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  lessonId     String
+  lesson       Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  completedAt  DateTime   @default(now())
+
+  @@unique([userId, lessonId])
+  @@index([enrollmentId])
+}
+
+// ---------- Assessments ----------
+model Quiz {
+  id           String        @id @default(cuid())
+  courseId     String
+  course       Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  moduleId     String?
+  module       Module?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title        String
+  description  String?
+  passingScore Int           @default(70) // percent
+  maxAttempts  Int?          // null = unlimited
+  isPublished  Boolean       @default(false)
+  questions    Question[]
+  attempts     QuizAttempt[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([courseId])
+}
+
+model Question {
+  id       String           @id @default(cuid())
+  quizId   String
+  quiz     Quiz             @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  type     QuestionType     @default(MULTIPLE_CHOICE)
+  prompt   String           @db.Text
+  points   Int              @default(1)
+  position Int
+  options  QuestionOption[]
+  answers  QuizAnswer[]
+
+  @@index([quizId, position])
+}
+
+model QuestionOption {
+  id         String       @id @default(cuid())
+  questionId String
+  question   Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean      @default(false)
+  position   Int          @default(0)
+  answers    QuizAnswer[]
+
+  @@index([questionId])
+}
+
+model QuizAttempt {
+  id          String       @id @default(cuid())
+  quizId      String
+  quiz        Quiz         @relation(fields: [quizId], references: [id])
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  score       Int?         // percent, set on submit
+  passed      Boolean?
+  startedAt   DateTime     @default(now())
+  submittedAt DateTime?
+  answers     QuizAnswer[]
+
+  @@index([quizId, userId])
+}
+
+model QuizAnswer {
+  id               String          @id @default(cuid())
+  attemptId        String
+  attempt          QuizAttempt     @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         Question        @relation(fields: [questionId], references: [id])
+  selectedOptionId String?
+  selectedOption   QuestionOption? @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+  textAnswer       String?         @db.Text // extension point for essay questions
+  isCorrect        Boolean?
+
+  @@unique([attemptId, questionId])
+}
+
+// ---------- Platform ----------
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           NotificationType
+  title          String
+  body           String?
+  link           String?
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([userId, readAt])
+}
+
+model ActivityLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  actorId        String?
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action         String       // e.g. "course.created"
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+}
