@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "@prisma/client": "^7.10.1",
+    "@prisma/client": "^6.19.3",
     "better-auth": "^1.7.28",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
@@ -48,6 +48,7 @@
   "allowScripts": {
     "prisma@6.19.3": true,
     "@prisma/engines@6.19.3": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "@prisma/client@6.19.3": true
   }
 }
