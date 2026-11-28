@@ -1,63 +1,41 @@
-"use server";
+import { db } from "@/lib/db";
 
-import type { FormState } from "@/lib/action-state";
-import { runAction } from "@/lib/action-runner";
-import { directionSchema, idSchema } from "@/lib/zod-helpers";
-import {
-  addLessonSchema, addModuleSchema, renameModuleSchema, updateLessonSchema,
-} from "./schemas";
-import {
-  addLesson, addModule, deleteLesson, deleteModule, moveLesson, moveModule, renameModule, updateLesson,
-} from "./service";
+export const enrollmentRepo = {
+  find: (userId: string, courseId: string) =>
+    db.enrollment.findUnique({ where: { userId_courseId: { userId, courseId } } }),
 
-const STAFF = ["INSTRUCTOR", "ADMIN"] as const;
-const PATHS = ["/instructor/courses/[id]", "/instructor/courses/[id]/lessons/[lessonId]", "/courses/[slug]"];
-const data = (fd: FormData) => Object.fromEntries(fd);
+  create: (userId: string, courseId: string) => db.enrollment.create({ data: { userId, courseId } }),
 
-export const addModuleAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => addModule(ctx, addModuleSchema.parse(data(fd))), { revalidate: PATHS });
+  listByUser: (userId: string) =>
+    db.enrollment.findMany({
+      where: { userId },
+      orderBy: { enrolledAt: "desc" },
+      include: {
+        course: {
+          select: {
+            id: true, slug: true, title: true, level: true,
+            instructor: { select: { name: true } },
+            category: { select: { name: true } },
+          },
+        },
+      },
+    }),
 
-export const renameModuleAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => renameModule(ctx, renameModuleSchema.parse(data(fd))), { revalidate: PATHS });
+  listAll: (orgId: string, take = 200) =>
+    db.enrollment.findMany({
+      where: { course: { organizationId: orgId } },
+      orderBy: { enrolledAt: "desc" },
+      take,
+      include: {
+        user: { select: { name: true, email: true } },
+        course: { select: { id: true, title: true, slug: true } },
+      },
+    }),
 
-export const deleteModuleAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => deleteModule(ctx, idSchema.parse(fd.get("id"))), { revalidate: PATHS });
-
-export const moveModuleAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => moveModule(ctx, idSchema.parse(fd.get("id")), directionSchema.parse(fd.get("direction"))), { revalidate: PATHS });
-
-export const addLessonAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => addLesson(ctx, addLessonSchema.parse(data(fd))), { revalidate: PATHS });
-
-export const updateLessonAction = async (_: FormState, fd: FormData) =>
-  runAction([...STAFF], (ctx) => updateLesson(ctx, updateLessonSchema.parse(data(fd))), { success: "Lesson saved.", revalidate: PATHS });
-
-
-export const deleteLessonAction = async (
-  _: FormState,
-  fd: FormData
-) => {
-  return await runAction(
-    [...STAFF],
-    (ctx) => deleteLesson(ctx, idSchema.parse(fd.get("id"))),
-    { revalidate: PATHS }
-  );
-};
-
-export const moveLessonAction = async (
-  _: FormState,
-  fd: FormData
-) => {
-  return await runAction(
-    [...STAFF],
-    (ctx) =>
-      moveLesson(
-        ctx,
-        idSchema.parse(fd.get("id")),
-        directionSchema.parse(fd.get("direction"))
-      ),
-    {
-      revalidate: ["/admin", "/courses"],
-    }
-  );
+  listByCourse: (courseId: string) =>
+    db.enrollment.findMany({
+      where: { courseId },
+      orderBy: { enrolledAt: "desc" },
+      include: { user: { select: { id: true, name: true, email: true } } },
+    }),
 };
