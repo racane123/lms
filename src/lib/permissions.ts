@@ -8,7 +8,9 @@ export type Action =
   | "course:create"
   | "course:update"
   | "course:delete"
+  | "course:viewAll"        // new
   | "course:viewEnrollments"
+  | "enrollment:viewAll"    // new
   | "quiz:manage"
   | "quiz:viewResults"
   | "course:enroll"
@@ -42,7 +44,7 @@ export function can(ctx: Ctx, action: Action, resource?: Resource): boolean {
   // Tenant isolation: always enforced, for every role.
   if (resource?.organizationId && resource.organizationId !== ctx.organizationId) return false;
 
-  if (ctx.role === "ADMIN") return true;
+  if (ctx.role === "ADMIN") return action !== "course:enroll";
 
   const rules = ctx.role === "INSTRUCTOR" ? instructorRules : studentRules;
   const rule = rules[action];
